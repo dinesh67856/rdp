@@ -4,33 +4,40 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-15-intel
 
     steps:
-    - name: Install ngrok
+    # 1️⃣ Install SSH (already present on macOS, but just in case)
+    - name: Enable SSH
       run: |
-        ARCH=$(uname -m)
-        if [ "$ARCH" = "x86_64" ]; then
-          NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-darwin-amd64.zip"
-        elif [ "$ARCH" = "arm64" ]; then
-          NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-darwin-arm64.zip"
-        else
-          echo "Unsupported architecture: $ARCH"
-          exit 1
-        fi
-        curl -L $NGROK_URL -o ngrok.zip
-        unzip ngrok.zip
-        sudo mv ngrok /usr/local/bin/ngrok
+        sudo systemsetup -setremotelogin on
+
+    # 2️⃣ Add your public key to runner
+    - name: Add SSH public key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PUBLIC_KEY }}" >> ~/.ssh/authorized_keys
+        chmod 700 ~/.ssh
+        chmod 600 ~/.ssh/authorized_keys
+
+    # 3️⃣ Install tools (ngrok + jq)
+    - name: Install ngrok and jq
+      run: |
+        brew install ngrok jq
         ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
 
-    - name: Start ngrok TCP tunnel (port 22)
+    # 4️⃣ Start ngrok SSH tunnel
+    - name: Start ngrok SSH Tunnel
       run: |
-        nohup ngrok tcp 22 --region=in > ngrok-ssh.log 2>&1 &
+        nohup ngrok tcp 22 > ngrok-ssh.log 2>&1 &
 
-    - name: Show ngrok tunnel
+    # 5️⃣ Show SSH info
+    - name: Show SSH Connection Info
       run: |
         sleep 6
-        echo "========== TCP Tunnel =========="
-        curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[] | select(.proto=="tcp") | .public_url'
-        echo "==============================="
-        sleep 3600
+        echo "========== SSH =========="
+        curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url'
+        echo "Use this command to connect:"
+        echo "ssh -i <path_to_private_key> runner@<host_from_above> -p <port_from_above>"
+        echo "========================="
+        sleep 18000
