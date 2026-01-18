@@ -19,9 +19,12 @@ jobs:
         sudo systemctl restart xrdp
         sudo systemctl enable xrdp
     
-    - name: Set password for ubuntu user
+    - name: Create new user for RDP
       run: |
-        echo "ubuntu:P@ssw0rd123" | sudo chpasswd
+        # Create a new user for RDP access
+        sudo useradd -m -s /bin/bash rduser
+        echo "rduser:P@ssw0rd123" | sudo chpasswd
+        sudo usermod -aG sudo rduser
     
     - name: Download ngrok
       run: |
@@ -32,33 +35,34 @@ jobs:
         # Set ngrok auth token
         ./ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
     
-    - name: Start ngrok tunnel
+    - name: Start ngrok tunnel and display info
       run: |
-        # Start ngrok
+        # Start ngrok tunnel for RDP
         ./ngrok tcp 3389 --log stdout &
         sleep 5
         
         # Display connection info
         echo "=== RDP Connection Details ==="
-        echo "Waiting for tunnel..."
         
         # Try to get ngrok URL
         for i in {1..10}; do
-          URL=$(curl -s http://localhost:4040/api/tunnels 2>/dev/null | grep -o "tcp://[^\"]*" | head -1)
+          URL=$(curl -s http://localhost:4040/api/tunnels 2>/dev/null | jq -r '.tunnels[0].public_url' 2>/dev/null || echo "")
           if [ ! -z "$URL" ]; then
             echo "Success! Tunnel established."
             echo "Connect to: ${URL#tcp://}"
-            echo "Username: ubuntu"
+            echo "Username: rduser"
             echo "Password: P@ssw0rd123"
             break
           fi
+          echo "Waiting for tunnel... ($i/10)"
           sleep 2
         done
         
         if [ -z "$URL" ]; then
           echo "Failed to establish tunnel. Check ngrok logs."
-          echo "You might need to check: http://localhost:4040"
         fi
         
         echo "=== Tunnel will be active for 10 minutes ==="
+        
+        # Keep the workflow running
         sleep 600
