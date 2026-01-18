@@ -1,18 +1,18 @@
-name: Ubuntu RDP
+name: Ubuntu RDP Minimal
 on: workflow_dispatch
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Setup RDP & Ngrok Tunnel
+    - name: Setup Minimal RDP
       run: |
         sudo apt update -y
-        sudo DEBIAN_FRONTEND=noninteractive apt install -y xrdp ubuntu-desktop-minimal xfce4 xfce4-goodies wget curl
+        sudo DEBIAN_FRONTEND=noninteractive apt install -y xrdp xfce4 xfce4-goodies xorg dbus-x11 wget curl
         sudo useradd -m -s /bin/bash ubuntuuser || true
         echo 'ubuntuuser:P@ssw0rd!' | sudo chpasswd
         sudo usermod -aG sudo ubuntuuser
-        echo "xfce4-session" | sudo tee /home/ubuntuuser/.xsession
+        echo "startxfce4" | sudo tee /home/ubuntuuser/.xsession
         sudo chown -R ubuntuuser:ubuntuuser /home/ubuntuuser
         sudo chmod 755 /home/ubuntuuser/.xsession
         sudo systemctl start xrdp
@@ -26,7 +26,11 @@ jobs:
         sleep 15
         NGROK_URL=$(curl -s https://api.ngrok.com/tunnels | grep -o '"public_url":"tcp://[^"]*"' | cut -d'"' -f4)
         echo "=========================================="
-        echo "RDP Username: ubuntuuser"
+        echo "Minimal XFCE RDP Username: ubuntuuser"
         echo "Password: P@ssw0rd!"
-        echo "Ngrok RDP URL: $NGROK_URL"
-        echo "Connect: Host=$(echo $NGROK_URL | cut -d: -f2 | cut -d/ -f3) Port=$(echo
+        echo "Ngrok URL: $NGROK_URL"
+        echo "Host: $(echo $NGROK_URL | cut -d/ -f3 | cut -d: -f1) Port: $(echo $NGROK_URL | cut -d: -f3)"
+        echo "=========================================="
+      shell: bash
+    - name: Keep Alive
+      run: sleep 6h
