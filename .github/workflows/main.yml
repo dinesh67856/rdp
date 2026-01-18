@@ -1,25 +1,64 @@
-name: CI
+name: Ubuntu RDP with Ngrok
 
 on: [push, workflow_dispatch]
 
 jobs:
-  build:
-
-    runs-on: windows-latest
-
+  setup-rdp:
+    runs-on: ubuntu-latest
+    
     steps:
-    - name: Download
-      run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-    - name: Extract
-      run: Expand-Archive ngrok.zip
-    - name: Auth
-      run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
-      env:
-        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-    - name: Enable TS
-      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
-    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
-    - name: Create Tunnel
-      run: .\ngrok\ngrok.exe tcp 3389
+    - name: Install xrdp and dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y xrdp xorgxrdp jq
+    
+    - name: Configure xrdp
+      run: |
+        echo "exec /usr/bin/xfce4-session" > ~/.xsession
+        sudo sed -i 's/use_vsock=true/use_vsock=false/g' /etc/xrdp/xrdp.ini
+        sudo systemctl restart xrdp
+        sudo systemctl enable xrdp
+    
+    - name: Set password for ubuntu user
+      run: |
+        echo "ubuntu:P@ssw0rd123" | sudo chpasswd
+    
+    - name: Download ngrok
+      run: |
+        wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+        tar xzf ngrok-v3-stable-linux-amd64.tgz
+        chmod +x ngrok
+        
+        # Set ngrok auth token
+        ./ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+    
+    - name: Start ngrok tunnel
+      run: |
+        # Start ngrok
+        ./ngrok tcp 3389 --log stdout &
+        sleep 5
+        
+        # Display connection info
+        echo "=== RDP Connection Details ==="
+        echo "Waiting for tunnel..."
+        
+        # Try to get ngrok URL
+        for i in {1..10}; do
+          URL=$(curl -s http://localhost:4040/api/tunnels 2>/dev/null | grep -o "tcp://[^\"]*" | head -1)
+          if [ ! -z "$URL" ]; then
+            echo "Success! Tunnel established."
+            echo "Connect to: ${URL#tcp://}"
+            echo "Username: ubuntu"
+            echo "Password: P@ssw0rd123"
+            break
+          fi
+          sleep 2
+        done
+        
+        if [ -z "$URL" ]; then
+          echo "Failed to establish tunnel. Check ngrok logs."
+          echo "You might need to check: http://localhost:4040"
+        fi
+        
+        echo "=== Tunnel will be active for 10 minutes ==="
+        sleep 600
