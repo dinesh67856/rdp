@@ -1,97 +1,32 @@
-name: Ubuntu Desktop Virtual Machine
-
-on:
-  workflow_dispatch:
-
-defaults:
-  run:
-    shell: bash
-
+name: Ubuntu RDP
+on: workflow_dispatch
 jobs:
   build:
-    name: Linux System Build
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v2
-
-      - name: Setting Up the Ubuntu Environment
-        run: |
-          set -e
-
-          # Hardcoded credentials (TEMPORARY)
-          USERNAME="githubuser"
-          PASSWORD="Password123!"
-          RDP_PORT="3390"
-
-          export NGROK_AUTH_TOKEN="${{ secrets.NGROK_AUTH_TOKEN }}"
-
-          cat > linux-desktop-hardcoded.sh << 'EOF'
-          #!/bin/bash
-          set -e
-
-          USERNAME="githubuser"
-          PASSWORD="Password123!"
-          RDP_PORT="3390"
-
-          echo "Updating system..."
-          sudo apt-get update
-
-          echo "Installing desktop & RDP..."
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            xfce4 xfce4-goodies xrdp dbus-x11 x11-xserver-utils
-
-          echo "Creating user..."
-          if ! id "$USERNAME" &>/dev/null; then
-            sudo useradd -m -s /bin/bash "$USERNAME"
-            echo "$USERNAME:$PASSWORD" | sudo chpasswd
-            sudo usermod -aG sudo "$USERNAME"
-          fi
-
-          echo "Configuring XFCE session..."
-          sudo -u "$USERNAME" bash <<EOL
-          echo "startxfce4" > /home/$USERNAME/.xsession
-          chmod +x /home/$USERNAME/.xsession
-          EOL
-
-          echo "Configuring XRDP..."
-          sudo sed -i "s/port=3389/port=$RDP_PORT/g" /etc/xrdp/xrdp.ini
-          sudo sed -i 's/^test -x/#test -x/' /etc/xrdp/startwm.sh
-          sudo sed -i 's/^exec /#exec /' /etc/xrdp/startwm.sh
-
-          cat << 'EOL' | sudo tee -a /etc/xrdp/startwm.sh
-          unset DBUS_SESSION_BUS_ADDRESS
-          unset XDG_RUNTIME_DIR
-          exec startxfce4 &
-          EOL
-
-          sudo systemctl enable xrdp
-          sudo systemctl restart xrdp
-
-          echo "XRDP status:"
-          sudo systemctl status xrdp --no-pager || true
-
-          echo "Installing ngrok..."
-          wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
-          tar -xzf ngrok-v3-stable-linux-amd64.tgz
-
-          if [ -n "$NGROK_AUTH_TOKEN" ]; then
-            ./ngrok config add-authtoken "$NGROK_AUTH_TOKEN"
-            ./ngrok tcp $RDP_PORT &
-          else
-            echo "NGROK_AUTH_TOKEN not set!"
-          fi
-
-          echo "=================================="
-          echo "RDP READY"
-          echo "Username: $USERNAME"
-          echo "Password: $PASSWORD"
-          echo "Port: $RDP_PORT"
-          echo "=================================="
-          EOF
-
-          chmod +x linux-desktop-hardcoded.sh
-          bash linux-desktop-hardcoded.sh
-
-      - name: Keep Running Ubuntu System and keepAlive
-        run: sleep 6h
+    - uses: actions/checkout@v4
+    - name: Setup RDP & Ngrok Tunnel
+      run: |
+        sudo apt update -y
+        sudo DEBIAN_FRONTEND=noninteractive apt install -y xrdp ubuntu-desktop-minimal xfce4 xfce4-goodies wget curl
+        sudo useradd -m -s /bin/bash ubuntuuser || true
+        echo 'ubuntuuser:P@ssw0rd!' | sudo chpasswd
+        sudo usermod -aG sudo ubuntuuser
+        echo "xfce4-session" | sudo tee /home/ubuntuuser/.xsession
+        sudo chown -R ubuntuuser:ubuntuuser /home/ubuntuuser
+        sudo chmod 755 /home/ubuntuuser/.xsession
+        sudo systemctl start xrdp
+        sudo systemctl enable xrdp
+        wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+        tar xvzf ngrok-v3-stable-linux-amd64.tgz
+        sudo mv ngrok /usr/local/bin/
+        rm ngrok-v3-stable-linux-amd64.tgz
+        ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+        sudo nohup ngrok tcp 3389 --log=/tmp/ngrok.log > /dev/null 2>&1 &
+        sleep 15
+        NGROK_URL=$(curl -s https://api.ngrok.com/tunnels | grep -o '"public_url":"tcp://[^"]*"' | cut -d'"' -f4)
+        echo "=========================================="
+        echo "RDP Username: ubuntuuser"
+        echo "Password: P@ssw0rd!"
+        echo "Ngrok RDP URL: $NGROK_URL"
+        echo "Connect: Host=$(echo $NGROK_URL | cut -d: -f2 | cut -d/ -f3) Port=$(echo
