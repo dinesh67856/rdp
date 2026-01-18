@@ -4,26 +4,18 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     steps:
     - name: Update system
-      run: sudo apt update
+      run: sudo apt update && sudo apt install -y unzip wget openssh-server
 
-    - name: Install SSH
-      run: sudo apt install -y openssh-server
-
-    - name: Enable SSH
-      run: |
-        sudo systemctl enable ssh
-        sudo systemctl start ssh
-
-    - name: Set runner password
+    - name: Set runner password and enable SSH
       run: |
         echo "runner:password123" | sudo chpasswd
         sudo sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
         sudo sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
-        sudo systemctl restart ssh
+        sudo /usr/sbin/sshd -D &
 
     - name: Download ngrok
       run: |
