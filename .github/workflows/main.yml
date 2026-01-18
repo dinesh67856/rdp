@@ -7,28 +7,8 @@ jobs:
     runs-on: macos-latest
 
     steps:
-    - name: Update system
-      run: brew update
-
-    # ---------- SSH ----------
-    - name: Install SSH (OpenSSH comes preinstalled on macOS)
-      run: |
-        sudo systemsetup -setremotelogin on
-        echo "SSH enabled"
-
-    - name: Set runner password
-      run: |
-        echo "runner:password123" | sudo dscl . -passwd /Users/runner password123
-        sudo defaults write /Library/Preferences/com.apple.loginwindow PasswordEnabled -bool true
-
-    # ---------- Light UI ----------
-    # macOS already has GUI, but you could install Homebrew GUI apps if needed
-    # XFCE/XRDP is Linux-specific, so skip on macOS
-
-    # ---------- Ngrok ----------
     - name: Install ngrok
       run: |
-        # Detect architecture and download correct ngrok binary
         ARCH=$(uname -m)
         if [ "$ARCH" = "x86_64" ]; then
           NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-darwin-amd64.zip"
@@ -43,27 +23,14 @@ jobs:
         sudo mv ngrok /usr/local/bin/ngrok
         ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
 
-    # SSH Tunnel
-    - name: Start ngrok SSH Tunnel
+    - name: Start ngrok TCP tunnel (port 22)
       run: |
         nohup ngrok tcp 22 --region=in > ngrok-ssh.log 2>&1 &
 
-    # RDP Tunnel
-    # Note: RDP/XRDP doesn’t exist on macOS, but you can still forward other TCP ports if needed
-    - name: Start ngrok RDP Tunnel (optional)
-      run: |
-        nohup ngrok tcp 3389 --region=in > ngrok-rdp.log 2>&1 &
-
-    # Show connection info & keep alive
-    - name: Show SSH Connection Info
+    - name: Show ngrok tunnel
       run: |
         sleep 6
-        echo "========== SSH =========="
-        # Only print the first TCP tunnel (for SSH)
-        curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[] | select(.proto=="tcp") | .public_url' | head -n1
-        echo "User: runner"
-        echo "Pass: password123"
-        echo "========================="
-        echo "Use first address for SSH"
-        echo "Use second address for RDP (if applicable)"
-        sleep 18000
+        echo "========== TCP Tunnel =========="
+        curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[] | select(.proto=="tcp") | .public_url'
+        echo "==============================="
+        sleep 3600
