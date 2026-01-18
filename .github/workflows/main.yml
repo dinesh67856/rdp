@@ -4,7 +4,7 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
-    runs-on: macos-15-intel
+    runs-on: macos-latest
 
     steps:
     # 1️⃣ Install SSH (already present on macOS, but just in case)
