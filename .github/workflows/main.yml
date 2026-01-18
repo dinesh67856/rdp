@@ -4,13 +4,12 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
 
     steps:
     - name: Update system
       run: sudo apt update
 
-    # ---------- SSH ----------
     - name: Install SSH
       run: sudo apt install -y openssh-server
 
@@ -26,53 +25,15 @@ jobs:
         sudo sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
         sudo systemctl restart ssh
 
-    # ---------- Light UI (XFCE + XRDP) ----------
-    - name: Install Light Desktop + XRDP
+    - name: Download ngrok
       run: |
-        sudo apt install -y xfce4 xfce4-goodies xrdp jq
-        echo "xfce4-session" > ~/.xsession
-        sudo systemctl enable xrdp
-        sudo systemctl start xrdp
-        sudo adduser xrdp ssl-cert
-
-    # ---------- Ngrok ----------
-    - name: Install ngrok
-      run: |
-        # Detect architecture and download correct ngrok binary
-        ARCH=$(uname -m)
-        if [ "$ARCH" = "x86_64" ]; then
-          NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip"
-        elif [ "$ARCH" = "aarch64" ]; then
-          NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-arm64.zip"
-        else
-          echo "Unsupported architecture: $ARCH"
-          exit 1
-        fi
-        wget $NGROK_URL -O ngrok.zip
+        wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip -O ngrok.zip
         unzip ngrok.zip
-        sudo mv ngrok /usr/local/bin/ngrok
-        ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
 
-    # SSH Tunnel
-    - name: Start ngrok SSH Tunnel
-      run: |
-        nohup ngrok tcp 22 --region=in > ngrok-ssh.log 2>&1 &
+    - name: Authenticate ngrok
+      run: ./ngrok authtoken $NGROK_AUTH_TOKEN
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
 
-    # RDP Tunnel
-    - name: Start ngrok RDP Tunnel
-      run: |
-        nohup ngrok tcp 3389 --region=in > ngrok-rdp.log 2>&1 &
-
-    # Show connection info & keep alive
-    - name: Show SSH Connection Info
-      run: |
-        sleep 6
-        echo "========== SSH =========="
-        # Only print the first TCP tunnel (for SSH)
-        curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[] | select(.proto=="tcp") | .public_url' | head -n1
-        echo "User: runner"
-        echo "Pass: password123"
-        echo "========================="
-        echo "Use first address for SSH"
-        echo "Use second address for RDP"
-        sleep 18000
+    - name: Create ngrok TCP Tunnel (India Region)
+      run: ./ngrok tcp --region=in 22
