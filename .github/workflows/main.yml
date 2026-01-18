@@ -4,36 +4,26 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
-    runs-on: ubuntu-24.04-arm
+    runs-on: macos-latest
 
     steps:
     - name: Update system
-      run: sudo apt update
+      run: brew update
 
     # ---------- SSH ----------
-    - name: Install SSH
-      run: sudo apt install -y openssh-server
-
-    - name: Enable SSH
+    - name: Install SSH (OpenSSH comes preinstalled on macOS)
       run: |
-        sudo systemctl enable ssh
-        sudo systemctl start ssh
+        sudo systemsetup -setremotelogin on
+        echo "SSH enabled"
 
     - name: Set runner password
       run: |
-        echo "runner:password123" | sudo chpasswd
-        sudo sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
-        sudo sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
-        sudo systemctl restart ssh
+        echo "runner:password123" | sudo dscl . -passwd /Users/runner password123
+        sudo defaults write /Library/Preferences/com.apple.loginwindow PasswordEnabled -bool true
 
-    # ---------- Light UI (XFCE + XRDP) ----------
-    - name: Install Light Desktop + XRDP
-      run: |
-        sudo apt install -y xfce4 xfce4-goodies xrdp jq
-        echo "xfce4-session" > ~/.xsession
-        sudo systemctl enable xrdp
-        sudo systemctl start xrdp
-        sudo adduser xrdp ssl-cert
+    # ---------- Light UI ----------
+    # macOS already has GUI, but you could install Homebrew GUI apps if needed
+    # XFCE/XRDP is Linux-specific, so skip on macOS
 
     # ---------- Ngrok ----------
     - name: Install ngrok
@@ -41,14 +31,14 @@ jobs:
         # Detect architecture and download correct ngrok binary
         ARCH=$(uname -m)
         if [ "$ARCH" = "x86_64" ]; then
-          NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip"
-        elif [ "$ARCH" = "aarch64" ]; then
-          NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-arm64.zip"
+          NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-darwin-amd64.zip"
+        elif [ "$ARCH" = "arm64" ]; then
+          NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-darwin-arm64.zip"
         else
           echo "Unsupported architecture: $ARCH"
           exit 1
         fi
-        wget $NGROK_URL -O ngrok.zip
+        curl -L $NGROK_URL -o ngrok.zip
         unzip ngrok.zip
         sudo mv ngrok /usr/local/bin/ngrok
         ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
@@ -59,7 +49,8 @@ jobs:
         nohup ngrok tcp 22 --region=in > ngrok-ssh.log 2>&1 &
 
     # RDP Tunnel
-    - name: Start ngrok RDP Tunnel
+    # Note: RDP/XRDP doesn’t exist on macOS, but you can still forward other TCP ports if needed
+    - name: Start ngrok RDP Tunnel (optional)
       run: |
         nohup ngrok tcp 3389 --region=in > ngrok-rdp.log 2>&1 &
 
@@ -74,5 +65,5 @@ jobs:
         echo "Pass: password123"
         echo "========================="
         echo "Use first address for SSH"
-        echo "Use second address for RDP"
+        echo "Use second address for RDP (if applicable)"
         sleep 18000
