@@ -1,34 +1,43 @@
-name: CI
+name: Ubuntu-RDP
 
 on: [push, workflow_dispatch]
 
 jobs:
   build:
-    runs-on: ubuntu-slim
-
+    runs-on: ubuntu-latest
     steps:
-    - name: Update system
-      run: sudo apt update && sudo apt install -y unzip wget openssh-server
-
-    - name: Set runner password and enable SSH
+    - name: Install Desktop Environment & XRDP
       run: |
-        echo "runner:password123" | sudo chpasswd
-        sudo sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
-        sudo sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
-        sudo /usr/sbin/sshd -D &
-
-    - name: Download ngrok
+        sudo apt update
+        # Install XFCE (lightweight) and XRDP
+        sudo apt install -y xfce4 xfce4-goodies xrdp
+        # Configure XRDP to use XFCE
+        echo "xfce4-session" > ~/.xsession
+        sudo systemctl enable xrdp
+        sudo systemctl start xrdp
+        
+    - name: Set User Password
       run: |
-        wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip -O ngrok.zip
-        unzip ngrok.zip
+        # Set a password for the 'runner' user so you can log in
+        echo "runner:P@ssw0rd123!" | sudo chpasswd
 
-    - name: Authenticate ngrok
-      run: ./ngrok authtoken $NGROK_AUTH_TOKEN
-      env:
-        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-
-    - name: Start ngrok TCP and keep runner alive
+    - name: Install & Auth ngrok
       run: |
-        ./ngrok tcp --region=in 22 &
-        echo "ngrok running, keeping runner alive..."
-        while true; do sleep 60; done
+        curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+        echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+        sudo apt update && sudo apt install ngrok
+        ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+
+    - name: Start ngrok Tunnel
+      run: |
+        # Start ngrok in the background for port 3389 (RDP)
+        nohup ngrok tcp 3389 > /dev/null 2>&1 &
+        
+    - name: Keep Alive & Display URL
+      run: |
+        # Fetch the public URL from the local ngrok API
+        sleep 5
+        curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url'
+        echo "RDP is ready. Use the URL above in Windows Remote Desktop Connection."
+        # Keep the job running for 5 hours
+        sleep 18000
