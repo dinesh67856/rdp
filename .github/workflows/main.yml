@@ -4,40 +4,75 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ubuntu-24.04-arm
 
     steps:
-    # 1️⃣ Install SSH (already present on macOS, but just in case)
+    - name: Update system
+      run: sudo apt update
+
+    # ---------- SSH ----------
+    - name: Install SSH
+      run: sudo apt install -y openssh-server
+
     - name: Enable SSH
       run: |
-        sudo systemsetup -setremotelogin on
+        sudo systemctl enable ssh
+        sudo systemctl start ssh
 
-    # 2️⃣ Add your public key to runner
-    - name: Add SSH public key
+    - name: Set runner password
       run: |
-        mkdir -p ~/.ssh
-        echo "${{ secrets.SSH_PUBLIC_KEY }}" >> ~/.ssh/authorized_keys
-        chmod 700 ~/.ssh
-        chmod 600 ~/.ssh/authorized_keys
+        echo "runner:password123" | sudo chpasswd
+        sudo sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        sudo sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        sudo systemctl restart ssh
 
-    # 3️⃣ Install tools (ngrok + jq)
-    - name: Install ngrok and jq
+    # ---------- Light UI (XFCE + XRDP) ----------
+    - name: Install Light Desktop + XRDP
       run: |
-        brew install ngrok jq
+        sudo apt install -y xfce4 xfce4-goodies xrdp jq
+        echo "xfce4-session" > ~/.xsession
+        sudo systemctl enable xrdp
+        sudo systemctl start xrdp
+        sudo adduser xrdp ssl-cert
+
+    # ---------- Ngrok ----------
+    - name: Install ngrok
+      run: |
+        # Detect architecture and download correct ngrok binary
+        ARCH=$(uname -m)
+        if [ "$ARCH" = "x86_64" ]; then
+          NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip"
+        elif [ "$ARCH" = "aarch64" ]; then
+          NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-arm64.zip"
+        else
+          echo "Unsupported architecture: $ARCH"
+          exit 1
+        fi
+        wget $NGROK_URL -O ngrok.zip
+        unzip ngrok.zip
+        sudo mv ngrok /usr/local/bin/ngrok
         ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
 
-    # 4️⃣ Start ngrok SSH tunnel
+    # SSH Tunnel
     - name: Start ngrok SSH Tunnel
       run: |
-        nohup ngrok tcp 22 > ngrok-ssh.log 2>&1 &
+        nohup ngrok tcp 22 --region=in > ngrok-ssh.log 2>&1 &
 
-    # 5️⃣ Show SSH info
+    # RDP Tunnel
+    - name: Start ngrok RDP Tunnel
+      run: |
+        nohup ngrok tcp 3389 --region=in > ngrok-rdp.log 2>&1 &
+
+    # Show connection info & keep alive
     - name: Show SSH Connection Info
       run: |
         sleep 6
         echo "========== SSH =========="
-        curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url'
-        echo "Use this command to connect:"
-        echo "ssh -i <path_to_private_key> runner@<host_from_above> -p <port_from_above>"
+        # Only print the first TCP tunnel (for SSH)
+        curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[] | select(.proto=="tcp") | .public_url' | head -n1
+        echo "User: runner"
+        echo "Pass: password123"
         echo "========================="
+        echo "Use first address for SSH"
+        echo "Use second address for RDP"
         sleep 18000
