@@ -1,13 +1,69 @@
-name: Ubuntu RDP
-on: workflow_dispatch
+name: Ubuntu Desktop Virtual Machine
+on: 
+  workflow_dispatch:
+defaults:
+  run:
+    shell: bash
+    
 jobs:
   build:
+    name: Linux System Build
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Setup RDP
-      run: bash linux-desktop.sh
-      env:
-        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}  # Still use for ngrok
-    - name: Keep Alive
+    - uses: actions/checkout@v2
+    - name: Setting Up the Ubuntu Environment
+      run: |
+        # Set hardcoded values for everything except NGROK
+        export LINUX_USERNAME="githubuser"
+        export LINUX_USER_PASSWORD="Password123!"
+        export CHROME_HEADLESS_CODE=""
+        export LINUX_MACHINE_NAME="GitHubVMRunner"
+        export GOOGLE_REMOTE_PIN="123456"
+        
+        # NGROK from GitHub Secrets
+        export NGROK_AUTH_TOKEN="${{ secrets.NGROK_AUTH_TOKEN }}"
+        
+        # Create a modified version of your script
+        cat > linux-desktop-hardcoded.sh << 'EOF'
+        #!/bin/bash
+        
+        echo "Starting setup with hardcoded credentials..."
+        echo "Username: githubuser"
+        echo "Machine Name: GitHubVMRunner"
+        
+        # Your linux-desktop.sh script here, using the exported variables
+        sudo apt-get update
+        sudo apt-get install -y xfce4 xfce4-goodies xrdp
+        
+        # Create user if not exists
+        if ! id "githubuser" &>/dev/null; then
+            sudo useradd -m -s /bin/bash githubuser
+            echo "githubuser:Password123!" | sudo chpasswd
+            sudo usermod -aG sudo githubuser
+        fi
+        
+        # Set up RDP
+        sudo sed -i 's/port=3389/port=3390/g' /etc/xrdp/xrdp.ini
+        sudo echo xfce4-session > ~/.xsession
+        
+        # Start RDP service
+        sudo systemctl restart xrdp
+        
+        # Set up ngrok with token from environment
+        if [ -n "$NGROK_AUTH_TOKEN" ]; then
+            wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+            tar -xzf ngrok-v3-stable-linux-amd64.tgz
+            ./ngrok config add-authtoken $NGROK_AUTH_TOKEN
+            ./ngrok tcp 3390 &
+            echo "ngrok setup complete"
+        else
+            echo "WARNING: NGROK_AUTH_TOKEN not set!"
+        fi
+        
+        echo "Setup complete!"
+        EOF
+        
+        chmod +x linux-desktop-hardcoded.sh
+        bash linux-desktop-hardcoded.sh
+    - name: Keep Running Ubuntu System and keepAlive
       run: sleep 6h
